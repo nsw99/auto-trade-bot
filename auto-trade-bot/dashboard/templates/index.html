@@ -1,0 +1,871 @@
+<!DOCTYPE html>
+<html lang="ko" data-bs-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DCA-Bot Dashboard</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.datatables.net/2.0.8/css/dataTables.bootstrap5.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
+    <!-- Charting Libraries -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://unpkg.com/lightweight-charts@4.1.0/dist/lightweight-charts.standalone.production.js"></script>
+    <style>
+        body { background-color: #121212; color: #e0e0e0; }
+        .card { background-color: #1e1e1e; border: 1px solid #333; }
+        .kpi-card .card-title { font-size: 0.9rem; font-weight: bold; color: #aaa; text-transform: uppercase; }
+        .kpi-card .card-text { font-size: 2rem; font-weight: bold; }
+        .positive { color: #28a745; }
+        .negative { color: #dc3545; }
+        .log-viewer { height: 400px; background-color: #000; font-family: 'Courier New', Courier, monospace; font-size: 0.85rem; overflow-y: auto; padding: 10px; border-radius: 5px; white-space: pre-wrap; }
+        .dataTables_wrapper .dataTables_length, .dataTables_wrapper .dataTables_filter, .dataTables_wrapper .dataTables_info, .dataTables_wrapper .dataTables_paginate .paginate_button { color: #ccc !important; }
+        .dataTables_wrapper .form-control { background-color: #333; color: #fff; border-color: #555; }
+        .config-card { background-color: #2a2a2a; position: relative; }
+        .config-card .badge { font-size: 0.9em; }
+        .delete-plan-btn { position: absolute; top: 10px; right: 10px; }
+        #stock-search-results { max-height: 200px; overflow-y: auto; }
+        .list-group-item-action { cursor: pointer; }
+        table.dataTable td.dt-control { text-align: center; cursor: pointer; }
+        table.dataTable tr.dt-hasChild td.dt-control:before { content: '-'; color: #dc3545; }
+        table.dataTable td.dt-control:before { content: '+'; color: #28a745; font-weight: bold; }
+        .details-table { width: 100%; background-color: #343a40; }
+        .details-table th { background-color: #454d55; }
+        #trade-journal-table thead th { padding-right: 30px; }
+        #trade-journal-table tfoot th { padding: 5px; }
+        #trade-journal-table tfoot input { width: 100%; padding: 3px; box-sizing: border-box; background-color: #333; color: #fff; border: 1px solid #555; }
+        .chart-container { position: relative; height: 350px; width: 100%; }
+        .card-header-button {
+            background: none;
+            border: none;
+            color: #e0e0e0;
+            cursor: pointer;
+            padding: 0;
+            width: 100%;
+            text-align: left;
+        }
+        .card-header-button:focus { outline: none; box-shadow: none; }
+        .card-header-button .bi-chevron-down { transition: transform 0.3s ease; }
+        .card-header-button[aria-expanded="false"] .bi-chevron-down { transform: rotate(-90deg); }
+    </style>
+</head>
+<body>
+    <div class="container-fluid p-4">
+        <!-- Header -->
+        <header class="d-flex justify-content-between align-items-center mb-4">
+            <h1 class="h3">한국투자증권 트레이드봇 대시보드</h1>
+            <div class="d-flex align-items-center">
+                <div id="status-indicator" class="spinner-grow spinner-grow-sm text-warning me-2" role="status"></div>
+                <span id="last-updated" class="text-muted small"></span>
+            </div>
+        </header>
+
+        <!-- KPI Cards -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <button class="card-header-button" data-bs-toggle="collapse" data-bs-target="#kpi-collapse" aria-expanded="true">
+                    <i class="bi bi-speedometer2 me-2"></i>KPI 요약 <i class="bi bi-chevron-down float-end"></i>
+                </button>
+            </div>
+            <div id="kpi-collapse" class="collapse show">
+                <div class="card-body">
+                    <div id="kpi-cards-container" class="row row-cols-1 row-cols-md-2 row-cols-xl-4 g-4"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 차트 섹션 -->
+        <div class="card mb-4">
+             <div class="card-header">
+                <button class="card-header-button" data-bs-toggle="collapse" data-bs-target="#charts-collapse" aria-expanded="true">
+                    <i class="bi bi-bar-chart-line-fill me-2"></i>차트 <i class="bi bi-chevron-down float-end"></i>
+                </button>
+            </div>
+            <div id="charts-collapse" class="collapse show">
+                <div class="card-body">
+                    <div class="row g-4">
+                        <div class="col-xl-6">
+                            <div class="card h-100 bg-dark">
+                                <div class="card-header"><i class="bi bi-pie-chart-fill me-2"></i>보유 종목</div>
+                                <div class="card-body d-flex justify-content-center align-items-center"><div class="chart-container"><canvas id="portfolio-chart"></canvas></div></div>
+                            </div>
+                        </div>
+                        <div class="col-xl-6">
+                            <div class="card h-100 bg-dark">
+                                <div class="card-header"><i class="bi bi-trophy-fill me-2"></i>실현 손익 (예시)</div>
+                                <div class="card-body d-flex justify-content-center align-items-center"><div class="chart-container"><canvas id="pnl-chart"></canvas></div></div>
+                            </div>
+                        </div>
+                        <div class="col-12">
+                            <div class="card bg-dark">
+                                <div class="card-header d-flex justify-content-between align-items-center">
+                                    <span><i class="bi bi-graph-up me-2"></i>기간별 매매 결산</span>
+                                    <div id="summary-period-selector" class="btn-group btn-group-sm">
+                                        <button type="button" class="btn btn-outline-secondary" data-period="daily">일별</button>
+                                        <button type="button" class="btn btn-outline-secondary" data-period="weekly">주별</button>
+                                        <button type="button" class="btn btn-outline-secondary active" data-period="monthly">월별</button>
+                                    </div>
+                                </div>
+                                <div class="card-body"><div class="chart-container"><canvas id="monthly-summary-chart"></canvas></div></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 실시간 시세 조회 -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <button class="card-header-button" data-bs-toggle="collapse" data-bs-target="#quote-collapse" aria-expanded="true">
+                    <i class="bi bi-search me-2"></i>실시간 시세 조회 (국내주식) <i class="bi bi-chevron-down float-end"></i>
+                </button>
+            </div>
+            <div id="quote-collapse" class="collapse show">
+                <div class="card-body">
+                    <div class="input-group mb-3">
+                        <input type="text" id="stock-code-input" class="form-control" placeholder="종목코드 입력 (예: 005930)">
+                        <button id="fetch-price-btn" class="btn btn-outline-secondary" type="button">조회</button>
+                    </div>
+                    <div id="price-display" class="p-3 rounded bg-dark" style="display: none;"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 종목 차트 조회 -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <button class="card-header-button" data-bs-toggle="collapse" data-bs-target="#stock-chart-collapse" aria-expanded="true">
+                    <i class="bi bi-graph-up-arrow me-2"></i>종목 차트 조회 (국내주식) <i class="bi bi-chevron-down float-end"></i>
+                </button>
+            </div>
+            <div id="stock-chart-collapse" class="collapse show">
+                <div class="card-body">
+                    <div class="input-group mb-3">
+                        <input type="text" id="chart-stock-code-input" class="form-control" placeholder="종목코드 입력 (예: 005930)">
+                        <button id="fetch-chart-btn" class="btn btn-outline-secondary" type="button">차트 조회</button>
+                    </div>
+                    <div id="ohlcv-chart-container" class="rounded" style="height: 400px; display: none; position: relative;"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 자동매매 활성 플랜 -->
+        <div class="card mb-4">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                 <button class="card-header-button" data-bs-toggle="collapse" data-bs-target="#plans-collapse" aria-expanded="true">
+                    <i class="bi bi-robot me-2"></i>자동매매 활성 플랜 <i class="bi bi-chevron-down float-end"></i>
+                </button>
+                <button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#addPlanModal"><i class="bi bi-plus-circle me-1"></i></button>
+            </div>
+            <div id="plans-collapse" class="collapse show">
+                <div class="card-body"><div id="dca-plans-container" class="row g-3"></div></div>
+            </div>
+        </div>
+
+        <!-- QVM 스크리닝 결과 -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <button class="card-header-button" data-bs-toggle="collapse" data-bs-target="#qvm-screening-collapse" aria-expanded="true">
+                    <i class="bi bi-bar-chart-fill me-2"></i>QVM 스크리닝 결과 <i class="bi bi-chevron-down float-end"></i>
+                </button>
+            </div>
+            <div id="qvm-screening-collapse" class="collapse show">
+                <div class="card-body">
+                    <ul class="nav nav-tabs mb-3" id="qvmTab" role="tablist">
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link active" id="kosdaq-tab" data-bs-toggle="tab" data-bs-target="#kosdaq-qvm" type="button" role="tab" aria-controls="kosdaq-qvm" aria-selected="true">코스닥 100</button>
+                        </li>
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link" id="nasdaq-tab" data-bs-toggle="tab" data-bs-target="#nasdaq-qvm" type="button" role="tab" aria-controls="nasdaq-qvm" aria-selected="false">나스닥 100</button>
+                        </li>
+                    </ul>
+                    <div class="tab-content" id="qvmTabContent">
+                        <div class="tab-pane fade show active" id="kosdaq-qvm" role="tabpanel" aria-labelledby="kosdaq-tab">
+                            <div class="table-responsive">
+                                <table id="kosdaq-qvm-table" class="table table-dark table-striped table-hover" style="width:100%">
+                                    <thead>
+                                        <tr>
+                                            <th>순위</th>
+                                            <th>종목명</th>
+                                            <th>현재가</th>
+                                            <th>PER</th>
+                                            <th>PBR</th>
+                                            <th>PSR</th>
+                                            <th>ROE(%)</th>
+                                            <th>별점</th>
+                                            <th>차트</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <!-- Data will be inserted here by JavaScript -->
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                        <div class="tab-pane fade" id="nasdaq-qvm" role="tabpanel" aria-labelledby="nasdaq-tab">
+                            <div class="table-responsive">
+                                <table id="nasdaq-qvm-table" class="table table-dark table-striped table-hover" style="width:100%">
+                                    <thead>
+                                        <tr>
+                                            <th>순위</th>
+                                            <th>종목명</th>
+                                            <th>현재가</th>
+                                            <th>PER</th>
+                                            <th>PBR</th>
+                                            <th>PSR</th>
+                                            <th>ROE(%)</th>
+                                            <th>별점</th>
+                                            <th>차트</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <!-- Data will be inserted here by JavaScript -->
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 매매일지 -->
+        <div class="card mb-4">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <button class="card-header-button" data-bs-toggle="collapse" data-bs-target="#journal-collapse" aria-expanded="true">
+                    <i class="bi bi-journal-text me-2"></i>매매 일지 <i class="bi bi-chevron-down float-end"></i>
+                </button>
+                <button id="delete-journal-btn" class="btn btn-danger btn-sm" disabled><i class="bi bi-trash me-1"></i></button>
+            </div>
+            <div id="journal-collapse" class="collapse show">
+                <div class="card-body">
+                    <div class="table-responsive">
+                        <table id="trade-journal-table" class="table table-dark table-striped table-hover" style="width:100%">
+                            <thead>
+                                <tr>
+                                    <th></th><th><input type="checkbox" id="select-all-checkbox"></th><th>플랜명</th><th>종목명</th><th>총 수량</th><th>평균 단가</th><th>총 매수금액</th><th>매매 횟수</th><th>최근 거래일</th><th>차트</th>
+                                </tr>
+                            </thead>
+                            <tfoot>
+                                <tr>
+                                    <th></th><th></th><th>플랜명</th><th>종목명</th><th></th><th></th><th></th><th></th><th></th><th></th>
+                                </tr>
+                            </tfoot>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Real-time Logs -->
+        <div class="card">
+            <div class="card-header">
+                <button class="card-header-button" data-bs-toggle="collapse" data-bs-target="#logs-collapse" aria-expanded="true">
+                    <i class="bi bi-terminal me-2"></i>실시간 로그 <i class="bi bi-chevron-down float-end"></i>
+                </button>
+            </div>
+            <div id="logs-collapse" class="collapse show">
+                <div class="card-body"><div id="log-viewer" class="log-viewer"></div></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Add Plan Modal -->
+    <div class="modal fade" id="addPlanModal" tabindex="-1" aria-labelledby="addPlanModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="addPlanModalLabel">신규 플랜 추가</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <form id="add-plan-form">
+                        <div class="mb-3">
+                            <label for="plan_name" class="form-label">플랜 이름</label>
+                            <input type="text" class="form-control" id="plan_name" required>
+                        </div>
+                        <div class="mb-3">
+                            <label for="stock_search" class="form-label">종목 검색 (국내)</label>
+                            <input type="text" class="form-control" id="stock_search" placeholder="종목명 또는 코드로 검색...">
+                            <div id="stock-search-results" class="list-group mt-2 position-absolute w-100" style="z-index: 1050;"></div>
+                        </div>
+
+                        <div id="stock-quote-display" class="p-3 mb-3 rounded bg-dark" style="display: none;"></div>
+
+                        <div class="row mb-3">
+                            <div class="col-md-6">
+                                <label for="stock_name" class="form-label">종목명</label>
+                                <input type="text" class="form-control" id="stock_name" readonly>
+                            </div>
+                            <div class="col-md-6">
+                                <label for="stock_code" class="form-label">종목코드</label>
+                                <input type="text" class="form-control" id="stock_code" readonly required>
+                                <input type="hidden" id="market">
+                            </div>
+                        </div>
+                        <div class="row mb-3">
+                            <div class="col-md-6">
+                                <label for="monthly_budget" class="form-label">월 투자예산 (원)</label>
+                                <input type="number" class="form-control" id="monthly_budget" required>
+                            </div>
+                            <div class="col-md-6">
+                                <label for="buy_amount_per_trade" class="form-label">1회 매수금액 (원)</label>
+                                <input type="number" class="form-control" id="buy_amount_per_trade" required>
+                            </div>
+                        </div>
+
+                        <hr class="my-4">
+
+                        <h5 class="mb-3">매매 전략 설정</h5>
+                        <div class="form-check form-switch mb-3">
+                            <input class="form-check-input" type="checkbox" role="switch" id="enabled" checked>
+                            <label class="form-check-label" for="enabled">플랜 활성화</label>
+                        </div>
+
+                        <div class="mb-3">
+                            <label for="mode" class="form-label">매매 모드</label>
+                            <select class="form-select" id="mode">
+                                <option value="full_auto" selected>완전 자동 (AI)</option>
+                                <option value="auto_timing">자동 타이밍</option>
+                            </select>
+                        </div>
+
+                        <div id="sell-strategy-options" class="row g-3">
+                            <div class="col-md-6">
+                                <label for="profit_target_percent_min" class="form-label">최소 익절 (%)</label>
+                                <input type="number" class="form-control" id="profit_target_percent_min" value="10">
+                            </div>
+                            <div class="col-md-6">
+                                <label for="loss_cut_percent" class="form-label">손절 (%)</label>
+                                <input type="number" class="form-control" id="loss_cut_percent" value="5">
+                            </div>
+                        </div>
+                    </form>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">닫기</button>
+                    <button type="button" class="btn btn-primary" id="save-plan-btn">플랜 저장</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdn.datatables.net/2.0.8/js/dataTables.min.js"></script>
+    <script src="https://cdn.datatables.net/2.0.8/js/dataTables.bootstrap5.min.js"></script>
+    <script>
+        $(document).ready(function() {
+            // 전역 변수 선언
+            let allDashboardData = {};
+            let chartInstances = {};
+            let exchangeRates = {};
+
+            function renderChart(canvasId, chartData, title, type = 'pie') {
+                const ctx = document.getElementById(canvasId).getContext('2d');
+                if (chartInstances[canvasId]) chartInstances[canvasId].destroy();
+
+                let options = {
+                    responsive: true, maintainAspectRatio: false,
+                    plugins: { legend: { position: 'bottom', labels: { color: '#e0e0e0' } } }
+                };
+
+                let data;
+                if (type === 'pie') {
+                    data = {
+                        labels: chartData.labels,
+                        datasets: [{
+                            label: title, data: chartData.data,
+                            backgroundColor: ['rgba(54, 162, 235, 0.8)', 'rgba(255, 99, 132, 0.8)', 'rgba(255, 206, 86, 0.8)', 'rgba(75, 192, 192, 0.8)', 'rgba(153, 102, 255, 0.8)', 'rgba(255, 159, 64, 0.8)'],
+                            borderColor: '#1e1e1e', borderWidth: 2
+                        }]
+                    };
+                } else { // line
+                    options.scales = {
+                        y: { ticks: { color: '#e0e0e0' }, grid: { color: 'rgba(255, 255, 255, 0.1)' } },
+                        x: { ticks: { color: '#e0e0e0' }, grid: { color: 'rgba(255, 255, 255, 0.1)' } }
+                    };
+                    data = {
+                        labels: chartData.labels,
+                        datasets: [{ label: title, data: chartData.data, fill: false, borderColor: 'rgb(75, 192, 192)', tension: 0.1, pointRadius: 0 }]
+                    };
+                }
+
+                chartInstances[canvasId] = new Chart(ctx, { type, data, options });
+            }
+
+            function formatDetails(details) {
+                if (!details || !Array.isArray(details) || details.length === 0) return '<p class="p-3">상세 매매 내역이 없습니다.</p>';
+                let html = '<table class="table details-table table-sm"><thead><tr><th>매매일시</th><th>수량</th><th>단가</th><th>매매금액</th><th>매매이유</th></tr></thead><tbody>';
+                details.forEach(d => {
+                    const date = d.timestamp ? new Date(d.timestamp).toLocaleString() : 'N/A';
+                    const quantity = d.quantity || 0;
+                    const price = d.price ? Number(d.price).toLocaleString() : '0';
+                    const amount = d.amount ? Number(d.amount).toLocaleString() : '0';
+                    const reason = d.reason || '';
+                    html += `<tr><td>${date}</td><td>${quantity}</td><td>${price}</td><td>${amount}</td><td>${reason}</td></tr>`;
+                });
+                return html + '</tbody></table>';
+            }
+
+            const tradeTable = new DataTable('#trade-journal-table', {
+                responsive: true, order: [[8, "desc"]],
+                columns: [
+                    { className: 'dt-control', orderable: false, data: null, defaultContent: '' },
+                    { orderable: false, data: 'id', render: data => `<input type="checkbox" class="row-checkbox" value="${data}">`, className: 'text-center' },
+                    { data: "plan_name" }, { data: "stock_name" }, { data: "total_quantity" }, { data: "avg_price" },
+                    { data: "total_amount" }, { data: "trade_count" }, { data: "last_trade_date" },
+                    { data: "stock_code", orderable: false, render: data => `<a href="/api/chart/${data}" target="_blank" class="btn btn-sm btn-outline-info"><i class="bi bi-graph-up"></i></a>` }
+                ],
+                language: { search: "전체 검색:", lengthMenu: "_MENU_ 개씩 보기", info: "총 _TOTAL_개 중 _START_에서 _END_까지", infoEmpty: "데이터 없음", infoFiltered: "(총 _MAX_개에서 필터링됨)", paginate: { first: "처음", last: "마지막", next: "다음", previous: "이전" }, zeroRecords: "일치하는 데이터 없음" },
+                initComplete: function () {
+                    this.api().columns([2, 3]).every(function () {
+                        const column = this;
+                        $('<input type="text" class="form-control form-control-sm" placeholder="검색" />')
+                            .appendTo($(column.footer()).empty())
+                            .on('keyup change clear', function () { if (column.search() !== this.value) column.search(this.value).draw(); });
+                    });
+                }
+            });
+
+            $('#trade-journal-table tbody').on('click', 'td.dt-control', function () {
+                const tr = $(this).closest('tr'), row = tradeTable.row(tr);
+                if (row.child.isShown()) { row.child.hide(); tr.removeClass('dt-hasChild'); }
+                else {
+                    const d = row.data();
+                    if (d && d.details) { row.child(formatDetails(d.details)).show(); tr.addClass('dt-hasChild'); }
+                }
+            });
+
+            async function updateDashboardData() {
+                try {
+                    const response = await fetch('/api/data');
+                    if (!response.ok) throw new Error(`Network response was not ok (${response.status})`);
+                    const data = await response.json();
+
+                    allDashboardData = data;
+                    if (data.exchange_rates) {
+                        exchangeRates = data.exchange_rates; // 환율 정보 저장
+                    }
+
+                    const kpiKorean = {
+                        'total_purchase_amount': '총 매수금액', 'total_eval_amount': '총 평가금액',
+                        'pnl': '평가손익', 'pnl_rate': '수익률 (%)', 'cash_balance': '주문가능금액'
+                    };
+
+                    const kpiContainer = $('#kpi-cards-container').empty();
+                    if (data.kpis) {
+                        if (data.kpis.last_updated) $('#last-updated').text(`최종 업데이트: ${data.kpis.last_updated}`);
+
+                        Object.entries(kpiKorean).forEach(([key, title]) => {
+                            const value = data.kpis[key] || '0';
+                            let valueHtml = `<span>${value}</span>`;
+                            if (key.toLowerCase().includes('pnl')) {
+                                const numericValue = parseFloat(String(value).replace(/,/g, ''));
+                                valueHtml = `<span class="${numericValue >= 0 ? 'positive' : 'negative'}">${value}</span>`;
+                            }
+                            kpiContainer.append(`<div class="col"><div class="card kpi-card"><div class="card-body"><h6 class="card-title">${title}</h6><p class="card-text">${valueHtml}</p></div></div></div>`);
+                        });
+                    }
+
+                    if (data.charts) {
+                        renderChart('portfolio-chart', data.charts.portfolio, '보유 종목 평가금액', 'pie');
+                        renderChart('pnl-chart', data.charts.realized_pnl, '실현 손익', 'pie');
+                    }
+
+                    const plansContainer = $('#dca-plans-container').empty();
+                    if (data.dca_plans && data.dca_plans.length > 0) {
+                        data.dca_plans.forEach(plan => {
+                            const cardHtml = `
+                                <div class="col-md-6 col-lg-4">
+                                    <div class="card config-card h-100" style="cursor: pointer;" data-bs-toggle="modal" data-bs-target="#addPlanModal" data-plan-name="${plan.plan_name}">
+                                        <div class="card-body">
+                                            <button class="btn btn-outline-danger btn-sm delete-plan-btn" data-plan-name="${plan.plan_name}"><i class="bi bi-trash"></i></button>
+                                            <h5 class="card-title">${plan.plan_name || ''}</h5>
+                                            <p class="card-text mb-1"><span class="fw-bold">${plan.stock_name || ''}</span> (${plan.stock_code || ''})</p>
+                                            <span class="badge bg-${plan.enabled ? 'success' : 'secondary'}">${plan.enabled ? '활성' : '비활성'}</span>
+                                        </div>
+                                    </div>
+                                </div>`;
+                            plansContainer.append(cardHtml);
+                        });
+                    } else {
+                        plansContainer.html('<p class="text-muted">활성화된 자동매매 플랜이 없습니다.</p>');
+                    }
+
+                    if (data.qvm_screening_results) {
+                        renderQVMTable('kosdaq-qvm-table', data.qvm_screening_results.kosdaq);
+                        renderQVMTable('nasdaq-qvm-table', data.qvm_screening_results.nasdaq);
+                    }
+
+                    tradeTable.clear().rows.add(data.trade_journal || []).draw();
+                    $('#delete-journal-btn').prop('disabled', true);
+                    $('#select-all-checkbox').prop('checked', false);
+
+                    $('#status-indicator').removeClass('text-warning text-danger').addClass('text-success');
+
+                } catch (error) {
+                    console.error('대시보드 데이터를 가져오는 데 실패했습니다:', error);
+                    $('#status-indicator').removeClass('text-success text-warning').addClass('text-danger');
+                }
+            }
+
+            async function updateSummaryChart(period = 'monthly') {
+                try {
+                    const response = await fetch(`/api/summary_chart/${period}`);
+                    if (!response.ok) throw new Error(`Network response was not ok (${response.status})`);
+                    const chartData = await response.json();
+                    const periodKorean = { 'daily': '일', 'weekly': '주', 'monthly': '월' };
+                    renderChart('monthly-summary-chart', { labels: chartData.labels, data: chartData.data }, `${periodKorean[period]}별 총 매수 금액`, 'line');
+
+                    $('#summary-period-selector button').removeClass('active');
+                    $(`#summary-period-selector button[data-period="${period}"]`).addClass('active');
+                } catch (error) {
+                    console.error(`${period}별 요약 차트 데이터를 가져오는 데 실패했습니다:`, error);
+                }
+            }
+
+            $('#summary-period-selector').on('click', 'button', function() {
+                updateSummaryChart($(this).data('period'));
+            });
+
+            let searchTimeout;
+            $('#stock_search').on('keyup', function() {
+                clearTimeout(searchTimeout);
+                const searchTerm = $(this).val().trim();
+                const resultsContainer = $('#stock-search-results');
+
+                if (searchTerm.length < 2) {
+                    resultsContainer.empty().hide();
+                    return;
+                }
+
+                searchTimeout = setTimeout(async () => {
+                    try {
+                        const response = await fetch(`/api/search-stock/${searchTerm}`);
+                        const results = await response.json();
+                        resultsContainer.empty();
+                        if (results && results.length > 0) {
+                            results.forEach(stock => {
+                                resultsContainer.append(`<a href="#" class="list-group-item list-group-item-action" data-symbol="${stock.symbol}" data-name="${stock.name}">${stock.name} (${stock.symbol})</a>`);
+                            });
+                            resultsContainer.show();
+                        } else {
+                            resultsContainer.html('<span class="list-group-item">검색 결과가 없습니다.</span>').show();
+                        }
+                    } catch (error) {
+                        console.error('국내주식 검색 실패:', error);
+                        resultsContainer.html('<span class="list-group-item list-group-item-danger">검색 중 오류가 발생했습니다.</span>').show();
+                    }
+                }, 300);
+            });
+
+            $('#stock-search-results').on('click', '.list-group-item-action', async function(e) {
+                e.preventDefault();
+                const symbol = $(this).data('symbol');
+                const name = $(this).data('name');
+                const quoteDisplay = $('#stock-quote-display');
+
+                $('#stock_name').val(name);
+                $('#stock_code').val(symbol);
+                $('#stock-search-results').empty().hide();
+
+                try {
+                    const response = await fetch(`/api/stock-price/${symbol}`);
+                    const data = await response.json();
+                    const quote = data[0];
+                    if (!quote) throw new Error('시세 정보를 가져올 수 없습니다.');
+
+                    const price = Number(quote.price);
+                    const currency = quote.currency || 'KRW';
+                    let displayPrice = `${price.toLocaleString()} ${currency}`;
+
+                    // 미국 달러이고, 환율 정보가 있을 경우 원화 가치 함께 표시
+                    if (currency === 'USD' && exchangeRates.USD) {
+                        const krwValue = Math.round(price * exchangeRates.USD);
+                        displayPrice = `$${price.toLocaleString()} <small class="text-muted">(≈ ${krwValue.toLocaleString()}원)</small>`;
+                    }
+
+                    quoteDisplay.html(`<h5 class="mb-1">${name} (${symbol})</h5><h4 class="mb-0">${displayPrice}</h4>`).show();
+                    $('#market').val(quote.market);
+
+                } catch (error) {
+                    quoteDisplay.html(`<div class="text-danger">오류: ${error.message}</div>`).show();
+                }
+            });
+
+            $('#addPlanModal').on('show.bs.modal', function(event) {
+                const triggerElement = $(event.relatedTarget);
+                const planName = triggerElement.data('plan-name'); // 플랜 카드에서만 이 값이 존재
+                const modal = $(this);
+                const form = $('#add-plan-form');
+
+                form[0].reset(); // 폼 초기화
+                form.find('input, select').prop('readonly', false); // 모든 필드 편집 가능하게
+                $('#stock-search-results, #stock-quote-display').hide();
+
+                if (planName) { // 수정 모드일 때
+                    modal.find('.modal-title').text('플랜 수정');
+                    form.attr('data-mode', 'edit').attr('data-original-plan-name', planName);
+
+                    const plan = allDashboardData.dca_plans.find(p => p.plan_name === planName);
+                    if (plan) {
+                        // 기존 데이터로 폼 채우기
+                        $('#plan_name').val(plan.plan_name).prop('readonly', true); // 플랜 이름은 수정 불가
+                        $('#stock_name').val(plan.stock_name);
+                        $('#stock_code').val(plan.stock_code);
+                        $('#market').val(plan.market);
+                        $('#monthly_budget').val(plan.monthly_budget);
+                        $('#buy_amount_per_trade').val(plan.buy_amount_per_trade);
+                        $('#enabled').prop('checked', plan.enabled);
+                        $('#mode').val(plan.mode);
+                        $('#profit_target_percent_min').val(plan.sell_strategy?.profit_target_percent_min || 10);
+                        $('#loss_cut_percent').val(plan.sell_strategy?.loss_cut_percent || 5);
+                    }
+                } else { // 추가 모드일 때
+                    modal.find('.modal-title').text('신규 플랜 추가');
+                    form.attr('data-mode', 'add').removeAttr('data-original-plan-name');
+                }
+            });
+
+            $(document).on('click', function(e) {
+                if (!$(e.target).closest('#stock_search, #stock-search-results').length) {
+                    $('#stock-search-results').hide();
+                }
+            });
+
+            $('#addPlanModal').on('hidden.bs.modal', function () {
+                $('#add-plan-form')[0].reset();
+                $('#stock-search-results').empty().hide();
+                $('#stock-quote-display').hide();
+            });
+
+            $('#save-plan-btn').on('click', async function() {
+                const form = $('#add-plan-form');
+                const mode = form.attr('data-mode');
+                const originalPlanName = form.attr('data-original-plan-name');
+
+                const planData = {
+                    plan_name: $('#plan_name').val(),
+                    stock_code: $('#stock_code').val(),
+                    stock_name: $('#stock_name').val(),
+                    market: $('#market').val(),
+                    monthly_budget: parseFloat($('#monthly_budget').val()),
+                    buy_amount_per_trade: parseFloat($('#buy_amount_per_trade').val()),
+                    enabled: $('#enabled').is(':checked'),
+                    mode: $('#mode').val(),
+                    sell_strategy: {
+                        enabled: true,
+                        profit_target_percent_min: parseFloat($('#profit_target_percent_min').val()),
+                        loss_cut_percent: parseFloat($('#loss_cut_percent').val()),
+                    }
+                };
+
+                if (!planData.plan_name || !planData.stock_code) {
+                    alert('플랜 이름과 종목코드는 필수입니다.');
+                    return;
+                }
+
+                let url = '/api/plans';
+                let method = 'POST';
+
+                if (mode === 'edit') {
+                    url = `/api/plans/${originalPlanName}`;
+                    method = 'PUT';
+                }
+
+                try {
+                    const response = await fetch(url, {
+                        method: method,
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(planData)
+                    });
+                    const result = await response.json();
+                    if (!response.ok) throw new Error(result.error || `플랜 ${mode === 'edit' ? '수정' : '추가'} 실패`);
+
+                    alert(result.message);
+                    $('#addPlanModal').modal('hide');
+                    updateDashboardData();
+                } catch (error) {
+                    alert(`오류: ${error.message}`);
+                }
+            });
+
+            $('#dca-plans-container').on('click', '.delete-plan-btn', async function() {
+                const planName = $(this).data('plan-name');
+                if (!confirm(`'${planName}' 플랜을 정말 삭제하시겠습니까?`)) return;
+
+                try {
+                    const response = await fetch(`/api/plans/${planName}`, { method: 'DELETE' });
+                    const result = await response.json();
+                    if (!response.ok) throw new Error(result.error || '플랜 삭제 실패');
+
+                    alert(result.message);
+                    updateDashboardData();
+                } catch (error) {
+                    alert(`오류: ${error.message}`);
+                }
+            });
+
+            const logViewer = document.getElementById('log-viewer');
+            const eventSource = new EventSource("/stream");
+            eventSource.onmessage = function(event) {
+                logViewer.innerHTML += event.data + '<br>';
+                logViewer.scrollTop = logViewer.scrollHeight;
+            };
+            eventSource.onerror = function(err) {
+                console.error("EventSource failed:", err);
+                logViewer.innerHTML += '<span class="text-danger">로그 서버 연결이 끊어졌습니다. 페이지를 새로고침 ���주세요.</span><br>';
+                eventSource.close();
+            };
+
+            updateDashboardData();
+            updateSummaryChart();
+            setInterval(updateDashboardData, 15000);
+
+            $('#fetch-price-btn').on('click', async function() {
+                const stockCode = $('#stock-code-input').val().trim();
+                const display = $('#price-display');
+                if (!stockCode) {
+                    display.html('<div class="text-warning">종목코드를 입력해주세요.</div>').show();
+                    return;
+                }
+                display.html('<div class="text-center"><div class="spinner-border spinner-border-sm" role="status"></div><span class="ms-2">조회 중...</span></div>').show();
+                try {
+                    const response = await fetch(`/api/stock-price/${stockCode}`);
+                    const data = await response.json();
+                    if (!response.ok || data.error) throw new Error(data.error || '시세를 가져오지 못했습니다.');
+                    const priceHtml = `<h5 class="mb-1">조회 결과</h5><h4 class="mb-0">${Number(data[0].price).toLocaleString()} <small class="text-muted">KRW</small></h4>`;
+                    display.html(priceHtml);
+                } catch (error) {
+                    console.error('국내주식 시세 조회 실패:', error);
+                    display.html(`<div class="text-danger">오류: ${error.message}</div>`);
+                }
+            });
+             $('#stock-code-input').on('keypress', function(e) {
+                if (e.which === 13) $('#fetch-price-btn').click();
+            });
+
+            let ohlcvChart = null;
+            $('#fetch-chart-btn').on('click', async function() {
+                const stockCode = $('#chart-stock-code-input').val().trim();
+                const chartContainer = document.getElementById('ohlcv-chart-container');
+
+                if (!stockCode) {
+                    alert('종목코드를 입력해주세요.');
+                    return;
+                }
+
+                chartContainer.style.display = 'block';
+                chartContainer.innerHTML = '<div class="d-flex justify-content-center align-items-center h-100"><div class="spinner-border" role="status"><span class="visually-hidden">Loading...</span></div></div>';
+
+                try {
+                    const response = await fetch(`/api/chart/${stockCode}`);
+                    const data = await response.json();
+
+                    if (!response.ok || data.error) throw new Error(data.error || '차트 데이터를 가져오지 못했습니다.');
+                    if (data.length === 0) throw new Error('해당 종목의 차트 데이터가 없습니다.');
+
+                    // 종목 이름 가져오기 (워터마크에 사용)
+                    const stockName = $('#chart-stock-code-input').val() || stockCode;
+
+                    chartContainer.innerHTML = '';
+                    if (ohlcvChart) ohlcvChart.remove();
+
+                    // --- 1. 차트 기본 옵션 개선 (워터마크 추가) ---
+                    ohlcvChart = LightweightCharts.createChart(chartContainer, {
+                        width: chartContainer.clientWidth,
+                        height: 400,
+                        layout: {
+                            backgroundColor: '#1e1e1e',
+                            textColor: '#e0e0e0',
+                            fontSize: 12,
+                            fontFamily: 'sans-serif',
+                        },
+                        grid: { vertLines: { color: '#333' }, horzLines: { color: '#333' } },
+                        crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
+                        timeScale: { borderColor: '#555', timeVisible: true, secondsVisible: false },
+                        // 워터마크 옵션 추가
+                        watermark: {
+                            color: 'rgba(200, 200, 200, 0.2)',
+                            visible: true,
+                            text: `${stockName} (${stockCode})`,
+                            fontSize: 48,
+                            horzAlign: 'center',
+                            vertAlign: 'center',
+                        },
+                    });
+
+                    // --- 2. 캔들스틱 시리즈 추가 (기존과 동일) ---
+                    // const candleSeries = ohlcvChart.addCandlestickSeries({
+                    //     upColor: 'rgba(40, 167, 69, 0.8)',
+                    //     downColor: 'rgba(220, 53, 69, 0.8)',
+                    //     borderDownColor: '#dc3545',
+                    //     borderUpColor: '#28a745',
+                    //     wickDownColor: '#dc3545',
+                    //     wickUpColor: '#28a745',
+                    // });
+                    // candleSeries.setData(data);
+
+                    // --- 3. 거래량 차트(히스토그램) 추가 ---
+                    // const volumeSeries = ohlcvChart.addHistogramSeries({
+                    //     color: '#26a69a',
+                    //     priceFormat: { type: 'volume' },
+                    //     priceScaleId: 'volume_scale', // 별도의 축 사용
+                    //     scaleMargins: { top: 0.8, bottom: 0 }, // 차트 하단에 위치
+                    // });
+                    //
+                    // // 거래량 데이터를 새로운 형식에 맞게 변환 (가격 상승/하락에 따라 색상 지정)
+                    // const volumeData = data.map(d => ({
+                    //     time: d.time,
+                    //     value: d.volume,
+                    //     color: d.close >= d.open ? 'rgba(40, 167, 69, 0.5)' : 'rgba(220, 53, 69, 0.5)',
+                    // }));
+                    // volumeSeries.setData(volumeData);
+
+                    ohlcvChart.timeScale().fitContent();
+
+                } catch (error) {
+                    console.error('종목 차트 조회 실패:', error);
+                    chartContainer.innerHTML = `<div class="d-flex justify-content-center align-items-center h-100"><div class="text-danger p-3">오류: ${error.message}</div></div>`;
+                }
+            });
+
+            $('#chart-stock-code-input').on('keypress', function(e) {
+                if (e.which === 13) $('#fetch-chart-btn').click();
+            });
+
+            function updateDeleteButtonState() {
+                const anyChecked = $('#trade-journal-table .row-checkbox:checked').length > 0;
+                $('#delete-journal-btn').prop('disabled', !anyChecked);
+            }
+
+            $('#trade-journal-table').on('change', '.row-checkbox, #select-all-checkbox', updateDeleteButtonState);
+            $('#select-all-checkbox').on('change', function() {
+                $('#trade-journal-table .row-checkbox').prop('checked', $(this).is(':checked'));
+                updateDeleteButtonState();
+            });
+
+            $('#delete-journal-btn').on('click', async function() {
+                const selectedIds = $('#trade-journal-table .row-checkbox:checked').map((i, el) => $(el).val()).get();
+                if (selectedIds.length === 0) return alert('삭제할 항목을 선택해주세요.');
+                if (!confirm(`${selectedIds.length}개의 항목을 정말 삭제하시겠습니까?`)) return;
+
+                try {
+                    const response = await fetch('/api/journal', {
+                        method: 'DELETE',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ ids: selectedIds })
+                    });
+                    const result = await response.json();
+                    if (!response.ok) throw new Error(result.error || '삭제 실패');
+                    alert(result.message || '성공적으로 삭제되었습니다.');
+                    updateDashboardData();
+                } catch (error) {
+                    alert(`오류: ${error.message}`);
+                }
+            });
+        });
+    </script>
+</body>
+</html>

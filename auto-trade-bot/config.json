@@ -1,0 +1,43 @@
+{
+  "account_type": "virtual",
+  "dca_plans": [
+    {
+      "plan_name": "aa",
+      "stock_code": "005930",
+      "stock_name": "삼성전자",
+      "market": "KRX",
+      "total_investment": 200000,
+      "buy_trigger_percentage": 1,
+      "buy_amount_per_trade": 200000,
+      "min_interval_hours": 24,
+      "enabled": true,
+      "sell_strategy": {
+        "enabled": true,
+        "profit_target_percent_min": 10,
+        "profit_target_percent_max": 15,
+        "loss_cut_percent": 5,
+        "rebound_sell_config": {
+          "enabled": false,
+          "rebound_days_change_percent": 5
+        }
+      },
+      "mode": "full_auto",
+      "risk_level": "moderate"
+    },
+    {
+      "plan_name": "NVDA",
+      "stock_code": "NVDA",
+      "stock_name": "엔비디아",
+      "market": "NASDAQ",
+      "monthly_budget": 100000,
+      "buy_amount_per_trade": null,
+      "enabled": true,
+      "mode": "full_auto",
+      "sell_strategy": {
+        "enabled": true,
+        "profit_target_percent_min": 10,
+        "loss_cut_percent": 5
+      }
+    }
+  ]
+}
